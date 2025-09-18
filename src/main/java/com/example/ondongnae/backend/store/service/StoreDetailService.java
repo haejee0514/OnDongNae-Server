@@ -41,7 +41,7 @@ public class StoreDetailService {
     // 가게 상세 정보 조회
     // 캐시 대상 메서드
     // 캐시 키는 정규화 언어값을 사용해 중복 키 생성 방지
-    @Cacheable(cacheNames = "store-detail", key = "#storeId + ':' + #resolvedLang", unless = "#result == null")
+    @Cacheable(cacheNames = "store-detail", key = "#storeId + ':' + #resolvedLang", sync = true)
     public StoreDetailResponse getDetailCached(Long storeId, String resolvedLang) {
         // 1. 가게 기본 정보 조회 (이미지, 시장 정보 포함)
         Store store = storeRepository.findById(storeId)
