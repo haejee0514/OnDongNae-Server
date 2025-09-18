@@ -20,8 +20,8 @@ public class CacheConfig {
         var storeDetail = new CaffeineCache(
                 "store-detail", // 캐시 이름
                 Caffeine.newBuilder()
-                        .expireAfterWrite(Duration.ofSeconds(60)) // TTL 60초
-                        .maximumSize(500) // 최대 엔트리
+                        .expireAfterWrite(Duration.ofMinutes(5)) // TTL 5분
+                        .maximumSize(1000) // 최대 엔트리
                         .recordStats() // 통계 수집
                         .build()
         );
