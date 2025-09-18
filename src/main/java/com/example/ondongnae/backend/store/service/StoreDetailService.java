@@ -12,6 +12,7 @@ import com.example.ondongnae.backend.store.repository.BusinessHourRepository;
 import com.example.ondongnae.backend.store.repository.StoreIntroRepository;
 import com.example.ondongnae.backend.store.repository.StoreRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,17 +31,24 @@ public class StoreDetailService {
     private final StoreIntroRepository storeIntroRepository;
     private final AuthService authService;
 
-    // 가게 상세 정보 조회
+    // 컨트롤러가 호출하는 진입점
+    // 언어를 먼저 정규화한 뒤 캐시 메서드로 위임
     public StoreDetailResponse getDetail(Long storeId, String lang) {
+        String resolvedLang = resolveLangStrict(lang);
+        return getDetailCached(storeId, resolvedLang);
+    }
+
+    // 가게 상세 정보 조회
+    // 캐시 대상 메서드
+    // 캐시 키는 정규화 언어값을 사용해 중복 키 생성 방지
+    @Cacheable(cacheNames = "store-detail", key = "#storeId + ':' + #resolvedLang", unless = "#result == null")
+    public StoreDetailResponse getDetailCached(Long storeId, String resolvedLang) {
         // 1. 가게 기본 정보 조회 (이미지, 시장 정보 포함)
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new BaseException(ErrorCode.STORE_NOT_FOUND));
 
         // 2. 메뉴 목록 조회 (알레르기 정보까지 fetch)
         List<Menu> menus = menuRepository.findWithAllergiesByStoreId(storeId);
-
-        // 3. 언어 코드 정규화 (ko/en/ja/zh만 허용, 그 외/없음 -> en)
-        String resolvedLang = resolveLangStrict(lang);
 
         // 4. 다국어 필드 매핑
         String name    = pickLang(store.getNameKo(), store.getNameEn(), store.getNameJa(), store.getNameZh(), resolvedLang);
@@ -63,10 +71,10 @@ public class StoreDetailService {
         List<StoreDetailResponse.WeeklyHour> weeklyHours = weekly.stream()
                 .sorted(Comparator.comparing(b -> b.getDayOfWeek().ordinal()))
                 .map(b -> StoreDetailResponse.WeeklyHour.builder()
-                        .day(b.getDayOfWeek().name())      // 요일 (영문, MON..SUN)
-                        .open(toTimeString(b.getOpenTime()))   // HH:mm
-                        .close(toTimeString(b.getCloseTime())) // HH:mm
-                        .closed(b.isClosed())                 // 휴무 여부
+                        .day(b.getDayOfWeek().name())
+                        .open(toTimeString(b.getOpenTime()))
+                        .close(toTimeString(b.getCloseTime()))
+                        .closed(b.isClosed())
                         .build())
                 .toList();
 
@@ -216,7 +224,7 @@ public class StoreDetailService {
         Store store = storeRepository.findById(storeId)
                 .orElseThrow(() -> new BaseException(ErrorCode.STORE_NOT_FOUND));
 
-        return getDetail(store.getId(), lang);
+        return getDetail(storeId, lang);
     }
 
 }
