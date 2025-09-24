@@ -20,7 +20,7 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      # 3. Gradle 실행 권한 부여
+      # 3. Gradle 실행 권한
       - name: Grant execute permission for gradlew
         run: chmod +x ./gradlew
 
@@ -42,7 +42,7 @@ jobs:
           source: gorugoru.jar
           target: /home/ubuntu/gorugoru/tobe
 
-      # 7. EC2에서 실행
+      # 7. EC2에서 jar 실행
       - name: Deploy on EC2
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -51,7 +51,7 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script_stop: true
           script: |
-            # 디렉토리 정리
+            # 경로 정리
             rm -rf /home/ubuntu/gorugoru/current
             mkdir -p /home/ubuntu/gorugoru/current
             mv /home/ubuntu/gorugoru/tobe/gorugoru.jar /home/ubuntu/gorugoru/current/gorugoru.jar
@@ -60,7 +60,22 @@ jobs:
             # 기존 프로세스 종료
             sudo fuser -k -n tcp 8080 || true
 
-            # 새 프로세스 실행 (환경변수는 EC2에서 읽음)
+            # 새 프로세스 실행 (GitHub Secrets 사용)
             nohup java -jar gorugoru.jar \
               --server.port=8080 \
+              --spring.datasource.url="${{ secrets.DATABASE_URL }}" \
+              --spring.datasource.username="${{ secrets.DATABASE_USERNAME }}" \
+              --spring.datasource.password="${{ secrets.DATABASE_PASSWORD }}" \
+              --jwt.secret="${{ secrets.JWT_SECRET }}" \
+              --cloud.aws.s3.bucket="${{ secrets.AWS_BUCKET }}" \
+              --cloud.aws.region.static="${{ secrets.AWS_REGION }}" \
+              --openai.api.key="${{ secrets.OPENAI_API_KEY }}" \
+              --clova.ocr.invoke-url="${{ secrets.CLOVA_OCR_INVOKE_URL }}" \
+              --clova.ocr.secret-key="${{ secrets.CLOVA_OCR_SECRET }}" \
+              --DESC_API_URL="${{ secrets.DESC_API_URL }}" \
+              --TRANSLATE_API_URL="${{ secrets.TRANSLATE_API_URL }}" \
+              --GOOGLE_MAP_API_KEY="${{ secrets.GOOGLE_MAP_API_KEY }}" \
+              --ADD_STORE_API_URL="${{ secrets.ADD_STORE_API_URL }}" \
+              --COURSE_RECOMMENDATION_API_URL="${{ secrets.COURSE_RECOMMENDATION_API_URL }}" \
+              --CURRENCY_API_KEY="${{ secrets.CURRENCY_API_KEY }}" \
               > ./output.log 2>&1 &
