@@ -41,7 +41,7 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/${{ github.event.repository.name }}:latest
+          tags: ${{ secrets.DOCKER_USERNAME }}/ondongnae-server:latest
 
       # 7. EC2에 배포
       - name: Deploy to EC2
@@ -56,7 +56,7 @@ jobs:
             docker rm $(docker ps -a -q --filter name=${{ github.event.repository.name }}) || true
             
             # Docker Hub에서 최신 이미지 받기
-            docker pull ${{ secrets.DOCKER_USERNAME }}/${{ github.event.repository.name }}:latest
+            docker pull ${{ secrets.DOCKER_USERNAME }}/ondongnae-server:latest
             
             # 환경 변수와 함께 새 컨테이너 실행
             docker run -d \
@@ -79,4 +79,4 @@ jobs:
               -e ADD_STORE_API_URL=${{ secrets.ADD_STORE_API_URL }} \
               -e COURSE_RECOMMENDATION_API_URL=${{ secrets.COURSE_RECOMMENDATION_API_URL }} \
               -e CURRENCY_API_KEY=${{ secrets.CURRENCY_API_KEY }} \
-              ${{ secrets.DOCKER_USERNAME }}/${{ github.event.repository.name }}:latest
+              ${{ secrets.DOCKER_USERNAME }}/ondongnae-server:latest
