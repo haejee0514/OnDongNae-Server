@@ -1,7 +1,6 @@
 package com.example.ondongnae.backend.store.service;
 
 import com.example.ondongnae.backend.category.model.MainCategory;
-import com.example.ondongnae.backend.category.model.StoreSubCategory;
 import com.example.ondongnae.backend.category.model.SubCategory;
 import com.example.ondongnae.backend.category.repository.MainCategoryRepository;
 import com.example.ondongnae.backend.category.repository.StoreSubCategoryRepository;
@@ -26,10 +25,6 @@ import com.example.ondongnae.backend.store.dto.AddStoreResponseDto;
 import com.example.ondongnae.backend.store.dto.DescriptionCreateRequestDto;
 import com.example.ondongnae.backend.store.dto.DescriptionResponseDto;
 import com.example.ondongnae.backend.store.model.Store;
-import com.example.ondongnae.backend.store.model.StoreImage;
-import com.example.ondongnae.backend.store.model.StoreIntro;
-import com.example.ondongnae.backend.store.repository.StoreImageRepository;
-import com.example.ondongnae.backend.store.repository.StoreIntroRepository;
 import com.example.ondongnae.backend.store.repository.StoreRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -50,13 +45,12 @@ import java.util.*;
 @RequiredArgsConstructor
 public class StoreService {
 
-    private final StoreSubCategoryRepository storeSubCategoryRepository;
     private final AuthService authService;
     @Value("${DESC_API_URL}")
     private String API_URL;
     @Value("${ADD_STORE_API_URL}")
     private String ADD_STORE_API_URL;
-    
+
     private final MemberRepository memberRepository;
     private final MarketRepository marketRepository;
     private final MainCategoryRepository mainCategoryRepository;
@@ -64,12 +58,11 @@ public class StoreService {
     private final TranslateService translateService;
     private final LatLngService latLngService;
     private final StoreRepository storeRepository;
-    private final StoreImageRepository storeImageRepository;
-    private final StoreIntroRepository storeIntroRepository;
     private final FileService fileService;
     private final PasswordEncoder passwordEncoder;
+    private final StoreSaverService storeSaverService;
 
-    @Transactional
+    // 외부 API 호출과 트랜잭션 분리
     public Long registerStore(RegisterStoreDto registerStoreDto) {
 
         // 설명 생성
@@ -94,39 +87,21 @@ public class StoreService {
             throw new BaseException(ErrorCode.EXTERNAL_API_ERROR, "외부 API로부터 위도, 경도를 불러오지 못했습니다.");
         }
 
-        // 가게 저장
-        Store store = Store.builder().member(member).market(market).mainCategory(mainCategory)
-                .nameEn(translateName.getEnglish()).nameKo(registerStoreDto.getStoreName())
-                .nameJa(translateName.getJapanese()).nameZh(translateName.getChinese())
-                .addressKo(registerStoreDto.getAddress()).addressJa(translateAddress.getJapanese())
-                .addressEn(translateAddress.getEnglish()).addressZh(translateAddress.getChinese())
-                .phone(registerStoreDto.getPhoneNum()).lat(latLngByAddress.getLat()).lng(latLngByAddress.getLng()).build();
-
-        Store savedStore = storeRepository.save(store);
-
-        // 가게 소분류 저장
-        saveStoreCategories(registerStoreDto.getSubCategory(), savedStore);
-
-        // 설명 번역 및 저장
-        saveStoreIntro(descriptionResponseDto, savedStore);
-
-        // 가게 이미지 저장
-        int order = 1;
+        // S3에 이미지 업로드
+        List<String> imageUrls = new ArrayList<>();
         if (registerStoreDto.getImage() != null) {
             for (MultipartFile file : registerStoreDto.getImage()) {
                 String imageUrl = fileService.uploadFile(file);
                 if (imageUrl == null) {
                     throw new BaseException(ErrorCode.EXTERNAL_API_ERROR, "이미지 등록에 실패했습니다.");
                 }
-                StoreImage storeImage = StoreImage.builder().store(savedStore)
-                        .url(imageUrl).order(order++).build();
-                storeImageRepository.save(storeImage);
+                imageUrls.add(imageUrl);
             }
         } else {
-            StoreImage storeImage = StoreImage.builder().store(savedStore)
-                    .url("https://" + fileService.bucket + ".s3." + fileService.region +".amazonaws.com/defaultImage.png").order(order++).build();
-            storeImageRepository.save(storeImage);
+            imageUrls.add("https://" + fileService.bucket + ".s3." + fileService.region +".amazonaws.com/defaultImage.png");
         }
+
+        Store savedStore = storeSaverService.saveStore(registerStoreDto, member, market, mainCategory, translateName, translateAddress, latLngByAddress, descriptionResponseDto, imageUrls);
 
         // 벡터 DB에 가게 정보 임베딩
         embedStore(descriptionCreateRequestDto, descriptionResponseDto, market.getNameKo(), savedStore.getId());
@@ -161,33 +136,6 @@ public class StoreService {
         }
 
         System.out.println((addStoreResponseDto.getCount()));
-    }
-
-    private void saveStoreIntro(DescriptionResponseDto descriptionResponseDto, Store store) {
-        String shortDescription = descriptionResponseDto.getShort_description();
-        String longDescription = descriptionResponseDto.getLong_description();
-
-        TranslateResponseDto translateShort = translateService.translate(shortDescription);
-        TranslateResponseDto translateLong = translateService.translate(longDescription);
-
-        StoreIntro en = StoreIntro.builder().store(store).lang("en").longIntro(translateLong.getEnglish()).shortIntro(translateShort.getEnglish()).build();
-        StoreIntro ko = StoreIntro.builder().store(store).lang("ko").longIntro(descriptionResponseDto.getLong_description()).shortIntro(descriptionResponseDto.getShort_description()).build();
-        StoreIntro zh = StoreIntro.builder().store(store).lang("zh").longIntro(translateLong.getChinese()).shortIntro(translateShort.getChinese()).build();
-        StoreIntro ja = StoreIntro.builder().store(store).lang("ja").longIntro(translateLong.getJapanese()).shortIntro(translateShort.getJapanese()).build();
-
-        storeIntroRepository.save(en);
-        storeIntroRepository.save(ko);
-        storeIntroRepository.save(zh);
-        storeIntroRepository.save(ja);
-    }
-
-    private void saveStoreCategories(List<Long> subCategoryIds, Store savedStore) {
-        for (Long id : subCategoryIds) {
-            SubCategory subCategory = SubCategoryRepository.findById(id)
-                    .orElseThrow(() -> new BaseException(ErrorCode.CATEGORY_NOT_FOUND, "해당 id의 소분류가 존재하지 않습니다."));
-            StoreSubCategory storeSubCategory = StoreSubCategory.builder().subCategory(subCategory).store(savedStore).build();
-            storeSubCategoryRepository.save(storeSubCategory);
-        }
     }
 
     private DescriptionCreateRequestDto createDescriptionCreateRequestDto(RegisterStoreDto registerStoreDto) {
