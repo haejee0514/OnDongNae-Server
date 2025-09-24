@@ -44,26 +44,7 @@ jobs:
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            set -x
             docker stop $(docker ps -a -q --filter name=${{ github.event.repository.name }}) || true
             docker rm $(docker ps -a -q --filter name=${{ github.event.repository.name }}) || true
             docker pull ${{ secrets.DOCKER_USERNAME }}/ondongnae-server:latest
-            docker run -d \
-              -p 8080:8080 \
-              --name ${{ github.event.repository.name }} \
-              -e spring.datasource.url=${{ secrets.DATABASE_URL }} \
-              -e spring.datasource.username=${{ secrets.DATABASE_USERNAME }} \
-              -e spring.datasource.password=${{ secrets.DATABASE_PASSWORD }} \
-              -e jwt.secret=${{ secrets.JWT_SECRET }} \
-              -e cloud.aws.s3.bucket=${{ secrets.AWS_BUCKET }} \
-              -e cloud.aws.region.static=${{ secrets.AWS_REGION }} \
-              -e openai.api.key=${{ secrets.OPENAI_API_KEY }} \
-              -e clova.ocr.invoke-url=${{ secrets.CLOVA_OCR_INVOKE_URL }} \
-              -e clova.ocr.secret-key=${{ secrets.CLOVA_OCR_SECRET }} \
-              -e DESC_API_URL=${{ secrets.DESC_API_URL }} \
-              -e TRANSLATE_API_URL=${{ secrets.TRANSLATE_API_URL }} \
-              -e GOOGLE_MAP_API_KEY=${{ secrets.GOOGLE_MAP_API_KEY }} \
-              -e ADD_STORE_API_URL=${{ secrets.ADD_STORE_API_URL }} \
-              -e COURSE_RECOMMENDATION_API_URL=${{ secrets.COURSE_RECOMMENDATION_API_URL }} \
-              -e CURRENCY_API_KEY=${{ secrets.CURRENCY_API_KEY }} \
-              ${{ secrets.DOCKER_USERNAME }}/ondongnae-server:latest
+            docker run -d -p 8080:8080 --name ${{ github.event.repository.name }} -e spring.datasource.url=${{ secrets.DATABASE_URL }} -e spring.datasource.username=${{ secrets.DATABASE_USERNAME }} -e spring.datasource.password=${{ secrets.DATABASE_PASSWORD }} -e jwt.secret=${{ secrets.JWT_SECRET }} -e cloud.aws.s3.bucket=${{ secrets.AWS_BUCKET }} -e cloud.aws.region.static=${{ secrets.AWS_REGION }} -e openai.api.key=${{ secrets.OPENAI_API_KEY }} -e clova.ocr.invoke-url=${{ secrets.CLOVA_OCR_INVOKE_URL }} -e clova.ocr.secret-key=${{ secrets.CLOVA_OCR_SECRET }} -e DESC_API_URL=${{ secrets.DESC_API_URL }} -e TRANSLATE_API_URL=${{ secrets.TRANSLATE_API_URL }} -e GOOGLE_MAP_API_KEY=${{ secrets.GOOGLE_MAP_API_KEY }} -e ADD_STORE_API_URL=${{ secrets.ADD_STORE_API_URL }} -e COURSE_RECOMMENDATION_API_URL=${{ secrets.COURSE_RECOMMENDATION_API_URL }} -e CURRENCY_API_KEY=${{ secrets.CURRENCY_API_KEY }} ${{ secrets.DOCKER_USERNAME }}/ondongnae-server:latest
