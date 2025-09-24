@@ -2,7 +2,7 @@ package com.example.ondongnae.backend.allergy.cononical;
 
 import java.util.Map;
 
-// 캐논명(영문) → 다국어 라벨 매핑 유틸.
+// 캐논명(영문) → 다국어 라벨 매핑 유틸
 public final class AllergyCanonicalMapper {
     private AllergyCanonicalMapper() {}
 

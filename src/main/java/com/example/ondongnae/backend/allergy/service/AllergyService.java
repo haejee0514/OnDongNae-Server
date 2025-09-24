@@ -6,6 +6,7 @@ import com.example.ondongnae.backend.allergy.dto.AllergyApplyRequest;
 import com.example.ondongnae.backend.allergy.dto.AllergyApplyResponse;
 import com.example.ondongnae.backend.allergy.dto.AllergyExtractResponse;
 import com.example.ondongnae.backend.allergy.gpt.AllergyGptClient;
+import com.example.ondongnae.backend.allergy.heuristic.DishTag;
 import com.example.ondongnae.backend.allergy.heuristic.HeuristicAllergyEngine;
 import com.example.ondongnae.backend.allergy.model.Allergy;
 import com.example.ondongnae.backend.menu.model.MenuAllergy;
@@ -24,8 +25,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 import java.util.stream.Collectors;
-
-import static java.util.stream.Collectors.toList;
 
 @Service
 @RequiredArgsConstructor
@@ -73,20 +72,52 @@ public class AllergyService {
 
         // 2) GPT 호출
         Map<Long, List<String>> canonByMenu = gptClient.extractCanonical(inputs);
-        // 3) (휴리스틱 ∪ GPT) 결합
+
+        // 3) (강규칙 + 교집합 + XOR) 결합
         var items = menus.stream().map(m -> {
             var h = heuristics.get(m.getId());
+
+            // 휴리스틱 결과(EN 문자열)
+            Set<String> heur = h.allergens().stream()
+                    .map(CanonicalAllergy::labelEn)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+
+            // 강규칙: 태그 기반 확정 가중치
+            Set<String> strong = new LinkedHashSet<>();
+            if (h.tags().contains(DishTag.CUTLET)) {
+                strong.add(CanonicalAllergy.PORK.labelEn());
+                strong.add(CanonicalAllergy.WHEAT_GLUTEN.labelEn());
+                strong.add(CanonicalAllergy.EGGS.labelEn());
+            }
+            if (h.tags().contains(DishTag.DUMPLING)) {
+                strong.add(CanonicalAllergy.WHEAT_GLUTEN.labelEn());
+            }
+            if (h.tags().contains(DishTag.BUCKWHEAT_BASE)) {
+                strong.add(CanonicalAllergy.BUCKWHEAT.labelEn());
+            }
+
+            // GPT 결과
+            Set<String> gpt = new LinkedHashSet<>(canonByMenu.getOrDefault(m.getId(), List.of()));
+
+            // 확정(High) = 강규칙 ∪ (휴리스틱 ∩ GPT)
+            Set<String> high = new LinkedHashSet<>(strong);
+            for (String g : gpt) if (heur.contains(g)) high.add(g);
+
+            // 가능(Mid) = (휴리스틱 ⊕ GPT) (XOR)
+            Set<String> mid = new LinkedHashSet<>();
+            for (String g : gpt) if (!heur.contains(g)) mid.add(g);
+            for (String hOnly : heur) if (!gpt.contains(hOnly)) mid.add(hOnly);
+
+            // 최종 = High ∪ Mid
             Set<String> union = new LinkedHashSet<>();
+            union.addAll(high);
+            union.addAll(mid);
 
-            // 휴리스틱 결과 추가
-            for (CanonicalAllergy c : h.allergens()) union.add(c.labelEn());            // GPT 결과 추가
-            union.addAll(canonByMenu.getOrDefault(m.getId(), List.of()));
-
-            // 캐논EN -> 한국어 라벨 매핑
+            // 캐논EN -> 한국어 라벨
             List<String> koLabels = union.stream()
-                    .map(CanonicalAllergy::fromEnglish)  // String -> CanonicalAllergy
+                    .map(CanonicalAllergy::fromEnglish)
                     .filter(Objects::nonNull)
-                    .map(AllergyCanonicalMapper::ko)     // CanonicalAllergy -> ko 라벨
+                    .map(AllergyCanonicalMapper::ko)
                     .filter(Objects::nonNull)
                     .distinct()
                     .sorted()

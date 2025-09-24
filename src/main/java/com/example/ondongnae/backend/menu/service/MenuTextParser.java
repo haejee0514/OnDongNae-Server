@@ -5,167 +5,245 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+
 /**
- * OCR 원문 텍스트를 한 줄씩 파싱해 (메뉴명, 가격) DTO로 생성
- * 괄호/수량/옵션/이모지 등 잡값 제거
- * 가격 패턴: 5,000원 / 7000 / 7000원 / 7,000 won / 7000 krw
- * 가격 미검출은 null 허용(프론트 인라인 수정에서 입력)
+ * 한 줄을 여러 (name, price) 페어로 분해해서 추출
+ * 수량(3개 등)은 가격 후보에서 제외하고 이름에는 남김
+ * 가격 우선순위: 통화 표기 > 콤마 포함 > 자리수>=4(>=1000) > 하한선(>=500)
  */
 @Component
 public class MenuTextParser {
 
-    // 가격: 1~3자리 + (콤마 + 3자리)* 또는 단순 숫자, 뒤에 통화표기 옵션
-    // 예) 9,000 / 15000 / 3,000원 / 1000 KRW / 7,000 won
-    private static final Pattern PRICE = Pattern.compile(
-            "(\\d{1,3}(?:,\\d{3})+|\\d+)\\s*(?:원|₩|￦|krw|won)?",
-            Pattern.CASE_INSENSITIVE);
-    // 라인 끝이나 괄호/공백 사이에 오는 사이즈 토큰들
-    // (한글/한자 혼용, '대/중/소', '大/中/小')
-    private static final Pattern SIZE_TOKEN = Pattern.compile("(?:\\(|\\s|^)(대|중|소|大|中|小|)(?:\\)|\\s|$)");
+    // 숫자 토큰: (숫자 또는 소수)(통화)?  |  (수량숫자)(수량단위)
+    private static final Pattern NUM_TOKEN = Pattern.compile(
+            "(\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d{1,2})?)\\s*(원|₩|￦|krw|won)?"
+                    + "|(\\d+)\\s*(개|pcs|份|个|碗|잔|장|인분|그릇)",
+            Pattern.CASE_INSENSITIVE
+    );
+
+    private static final Set<String> CURRENCY = Set.of("원","₩","￦","krw","won");
+    private static final Set<String> QTY_UNIT = Set.of("개","pcs","份","个","碗","잔","장","인분","그릇");
+
+    // 사이즈 토큰(대/중/소/大/中/小)
+    private static final Pattern SIZE_TOKEN = Pattern.compile("(?:\\(|\\s|^)(대|중|소|大|中|小)(?:\\)|\\s|$)");
+
+    // 숫자만/통화기호만 있는지 검사 (가격 전용 줄 판별)
+    private static final Pattern PRICE_ONLY_LINE = Pattern.compile("^[\\s\\d.,·∙•₩￦wonkrWON]+$");
 
     public List<OcrExtractItemDto> parse(String raw) {
         if (raw == null || raw.isBlank()) return List.of();
 
-        // 줄 단위 분리 (OCR lineBreak 기준으로 들어옴)
         String[] lines = raw.replace('\u00A0', ' ').split("\\r?\\n");
+        List<OcrExtractItemDto> out = new ArrayList<>();
 
-        List<OcrExtractItemDto> result = new ArrayList<>();
-        String pendingName = null;      // 가격 없는 이름을 임시 보관
-        String pendingSize = null;      // 라인에서 분리된 사이즈 토큰(중/대/小/中/大)
+        String pendingNameLine = null; // 이름만 있는 줄을 임시 보관
 
-        for (String originalLine : lines) {
-            String line = normalize(originalLine);
+        for (int i = 0; i < lines.length; i++) {
+            String line = normalize(lines[i]);
             if (line.isBlank()) continue;
 
-            // 1. 사이즈 토큰 분리(있으면 보관)
-            //  예) "소머리수육 中" -> name="소머리수육", size="중"
-            String size = extractSize(line);
-            if (size != null) {
-                pendingSize = size;
-                line = removeSize(line); // 사이즈 텍스트 제거
-                line = line.trim();
+            // 전부 영문 대문자 헤더(카테고리)면 스킵
+            if (likelyHeader(line)) {
+                pendingNameLine = null;
+                continue;
             }
 
-            // 2. 가격 매칭 시도
-            Matcher m = PRICE.matcher(line);
-            if (m.find()) {
-                // 가격 추출 -> 쉼표 제거
-                String num = m.group(1).replace(",", "");
-                Integer price = safeParseInt(num);
+            // 소수 깨짐 복구 (예: "3 . 5" / "3 · 5" → "3.5")
+            line = fixBrokenDecimals(line);
 
-                // 가격 앞부분을 이름으로 (뒤의 꼬리 텍스트는 버림)
-                String name = line.substring(0, m.start()).trim();
+            boolean hasDigit = containsDigit(line);
+            boolean priceOnly = isPriceOnlyLine(line);
 
-                // 이름이 비어있으면, 이전 줄에 있던 이름을 사용
-                if (name.isBlank() && pendingName != null) {
-                    name = pendingName;
-                    pendingName = null; // 소모
-                }
-
-                // 사이즈 표기 보존 (예: "소머리수육 (중)")
-                if (pendingSize != null) {
-                    name = appendSize(name, pendingSize);
-                    pendingSize = null;
-                }
-
-                // 이름 최소 길이 필터 (오인식 한 글자 제거)
-                if (isNoise(name)) continue;
-
-                if (!name.isBlank()) {
-                    result.add(new OcrExtractItemDto(name, price));
-                }
-                continue; // 다음 라인
+            // (A) 이전 줄이 "이름만" 있었고, 이번 줄이 "가격만"이면 합쳐서 파싱
+            if (pendingNameLine != null && priceOnly) {
+                String merged = pendingNameLine + " " + line;
+                out.addAll(extractPairsFromLine(merged));
+                pendingNameLine = null;
+                continue;
             }
 
-            // 3. 이 라인에는 가격이 없고, 유의미한 이름인 경우 → 다음 줄 가격과 결합하기 위해 보관
-            if (!isNoise(line)) {
-                // 만약 이전에 보관된 이름이 남아있다면 먼저 추가(가격 null 허용)
-                // -> "소주" 같은 라인들이 가격이 다른 줄에 없어도 남도록
-                if (pendingName != null && !pendingName.equals(line)) {
-                    // 이전 보관값을 가격 null로 기록
-                    result.add(new OcrExtractItemDto(
-                            pendingSize != null ? appendSize(pendingName, pendingSize) : pendingName,
-                            null));
-                    pendingSize = null;
-                }
-                pendingName = line;
+            // (B) 이번 줄에 숫자가 없으면: 이름만 가능 → 보관
+            if (!hasDigit) {
+                pendingNameLine = line;
+                continue;
+            }
+
+            // (C) 숫자가 있으면 이 줄 자체를 파싱
+            out.addAll(extractPairsFromLine(line));
+            pendingNameLine = null; // 새로 숫자를 봤으니 보관 초기화
+        }
+
+        return out;
+    }
+
+    /** 한 줄에서 [이름 ... 가격] 페어 여러 개 추출 */
+    private List<OcrExtractItemDto> extractPairsFromLine(String line) {
+        List<OcrExtractItemDto> result = new ArrayList<>();
+
+        Matcher m = NUM_TOKEN.matcher(line);
+        List<Token> tokens = new ArrayList<>();
+        while (m.find()) {
+            String num = m.group(1);
+            String cur = m.group(2);
+            String qtyNum = m.group(3);
+            String qtyUnit = m.group(4);
+
+            if (num != null) {
+                tokens.add(Token.number(m.start(), m.end(), num, cur));
+            } else if (qtyNum != null && qtyUnit != null) {
+                tokens.add(Token.quantity(m.start(), m.end(), qtyNum, qtyUnit));
             }
         }
 
-        // 끝났는데 pendingName 남아있으면 기록(가격 null)
-        if (pendingName != null && !isNoise(pendingName)) {
-            result.add(new OcrExtractItemDto(
-                    pendingSize != null ? appendSize(pendingName, pendingSize) : pendingName,
-                    null));
+        if (tokens.isEmpty()) return result;
+
+        int cut = 0;
+        for (int i = 0; i < tokens.size(); i++) {
+            Token t = tokens.get(i);
+            if (t.type != TokenType.NUMBER) continue;
+            if (!isPriceCandidate(t.num, t.currency)) continue;
+
+            String nameSeg = line.substring(cut, t.start).trim();
+            nameSeg = applySizeSuffix(nameSeg);
+            if (!isNoise(nameSeg)) {
+                Integer price = parsePriceFlexible(t.num);
+                result.add(new OcrExtractItemDto(nameSeg, price));
+            }
+            cut = t.end;
         }
 
+        // 마지막 꼬리 텍스트가 의미 있으면 price=null (선호에 따라 유지/제거 가능)
+        String tail = line.substring(cut).trim();
+        tail = applySizeSuffix(tail);
+        if (!tail.isBlank() && !isNoise(tail) && containsDigit(tail)) {
+            // tail 안에 숫자가 또 있으면 위 루프에서 이미 처리되므로,
+            // 여기서는 숫자 없는 의미있는 꼬리만 남도록 보통은 추가하지 않음.
+        }
         return result;
     }
 
-    // 공백/기호 정리. 콤마는 여기서 건드리지 않음 (가격 정규식에서 다룸)
-    private String normalize(String s) {
-        // 이모지/기호류 제거 (필요시 축소 가능)
-        String noEmoji = s.replaceAll("[\\p{So}\\p{Cn}]", " ");
-        // 괄호 일단 보존(사이즈 토큰 추출에 쓰일 수 있음)
-        String trimmed = noEmoji
-                .replaceAll("[\\t\\r]", " ")
-                .replaceAll("\\s{2,}", " ")
-                .trim();
-        return trimmed;
-    }
+    /** 가격 후보 판단 */
+    private boolean isPriceCandidate(String num, String currencyRaw) {
+        if (num == null) return false;
 
-    // 한 글자 잡값/노이즈 라인 필터
-    private boolean isNoise(String name) {
-        if (name == null) return true;
-        String n = name.trim();
-        if (n.isEmpty()) return true;
-        // 한 글자 노이즈 제거
-        if (n.length() == 1 && !Character.isDigit(n.charAt(0))) return true;
-        // 불필요한 접두/접미만 남은 경우
-        return false;
-    }
-
-    // "중/대/小/中/大/" 같은 사이즈 토큰을 (가능하면) 추출
-    private String extractSize(String line) {
-        Matcher m = SIZE_TOKEN.matcher(line);
-        if (m.find()) {
-            String raw = m.group(1);
-            return normalizeSize(raw);
+        // 1) 통화 단위 동반
+        if (currencyRaw != null) {
+            String c = currencyRaw.toLowerCase(Locale.ROOT);
+            if (CURRENCY.contains(c) || CURRENCY.contains(currencyRaw)) return true;
         }
-        return null;
+        // 2) 소수 표기(3.0/3.5 등) → 가격으로 인정(×1000 처리)
+        if (num.contains(".")) return true;
+
+        // 3) 콤마 포함(천단위)
+        if (num.contains(",")) return true;
+
+        // 4) 자리수 ≥ 4(>=1000)
+        String plain = num.replace(",", "");
+        if (plain.length() >= 4) return true;
+
+        // 5) 하한선(>=500)
+        Integer p = parsePriceFlexible(num);
+        return p != null && p >= 500;
     }
 
-    // 라인에서 사이즈 토큰 제거
-    private String removeSize(String line) {
-        return SIZE_TOKEN.matcher(line).replaceAll(" ").replaceAll("\\s{2,}", " ");
-    }
-
-    // 한자 → 한글
-    private String normalizeSize(String s) {
-        switch (s) {
-            case "大": return "대";
-            case "中": return "중";
-            case "小": return "소";
-            default:   return s;    // 대/중/소
-        }
-    }
-
-    // 이름 뒤에 사이즈를 괄호로 표기
-    private String appendSize(String name, String size) {
-        name = (name == null ? "" : name.trim());
-        if (name.isEmpty()) return name;
-        return name + " (" + size + ")";
-    }
-
-    private Integer safeParseInt(String n) {
+    /** 정수/콤마/소수 모두 처리. 소수면 ×1000원 */
+    private Integer parsePriceFlexible(String s) {
         try {
-            return Integer.parseInt(n);
+            String plain = s.replace(",", "");
+            if (plain.contains(".")) {
+                double v = Double.parseDouble(plain);
+                if (v >= 0.5 && v <= 99.0) {
+                    return (int) Math.round(v * 1000.0);
+                }
+                return null; // 비정상 소수는 배제
+            }
+            return Integer.parseInt(plain);
         } catch (Exception e) {
             return null;
         }
     }
-}
 
+    // 유틸
+
+    private String normalize(String s) {
+        String noEmoji = s.replaceAll("[\\p{So}\\p{Cn}]", " ");
+        return noEmoji.replaceAll("[\\t\\r]", " ")
+                .replaceAll("\\s{2,}", " ")
+                .trim();
+    }
+
+    /** "3 . 5", "3 · 5", "3 • 5" → "3.5" 로 복구 */
+    private String fixBrokenDecimals(String s) {
+        return s.replaceAll("(\\d)\\s*[\\.,·∙•]\\s*(\\d{1,2})", "$1.$2");
+    }
+
+    private boolean containsDigit(String s) {
+        return s != null && s.matches(".*\\d.*");
+    }
+
+    private boolean isPriceOnlyLine(String s) {
+        return s != null && PRICE_ONLY_LINE.matcher(s).matches();
+    }
+
+    /** 전부 영문 대문자(또는 공백/& 한정)이고 한글이 없으면 헤더로 간주 */
+    private boolean likelyHeader(String s) {
+        if (s == null) return false;
+        if (s.matches(".*[가-힣].*")) return false; // 한글 포함 → 헤더 아님
+        String letters = s.replaceAll("[^A-Za-z]", "");
+        if (letters.length() < 3) return false;
+        long upper = letters.chars().filter(Character::isUpperCase).count();
+        double ratio = upper / (double) letters.length();
+        return ratio >= 0.7; // 대문자 비율 70% 이상이면 헤더로 판단
+    }
+
+    private String applySizeSuffix(String seg) {
+        if (seg == null || seg.isBlank()) return seg;
+        Matcher m = SIZE_TOKEN.matcher(seg);
+        if (m.find()) {
+            String raw = m.group(1);
+            String size = switch (raw) {
+                case "大" -> "대";
+                case "中" -> "중";
+                case "小" -> "소";
+                default -> raw;
+            };
+            String cleaned = SIZE_TOKEN.matcher(seg).replaceAll(" ").replaceAll("\\s{2,}", " ").trim();
+            if (!cleaned.isBlank()) return cleaned + " (" + size + ")";
+        }
+        return seg;
+    }
+
+    private boolean isNoise(String name) {
+        if (name == null) return true;
+        String n = name.trim();
+        if (n.isEmpty()) return true;
+        if (n.length() == 1 && !Character.isDigit(n.charAt(0))) return true;
+        return false;
+    }
+
+    // 내부 자료구조
+
+    private enum TokenType { NUMBER, QUANTITY }
+
+    private static class Token {
+        final TokenType type;
+        final int start, end;
+        final String num;
+        final String currency;
+
+        private Token(TokenType type, int start, int end, String num, String currency) {
+            this.type = type; this.start = start; this.end = end; this.num = num; this.currency = currency;
+        }
+        static Token number(int s, int e, String num, String currency) {
+            return new Token(TokenType.NUMBER, s, e, num, currency);
+        }
+        static Token quantity(int s, int e, String qtyNum, String qtyUnit) {
+            return new Token(TokenType.QUANTITY, s, e, qtyNum, null);
+        }
+    }
+}

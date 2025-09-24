@@ -33,6 +33,7 @@ public class MyProfileController {
         return ResponseEntity.ok(ApiResponse.ok("수정 완료", null));
     }
 
+    // 탈퇴
     @DeleteMapping
     public ResponseEntity<ApiResponse<Void>> deleteMyProfile() {
         memberService.deleteMember();
