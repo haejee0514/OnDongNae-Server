@@ -41,7 +41,7 @@ public class LatLngService {
         } catch (BaseException e) {
             throw e;
         } catch (Exception e) {
-            throw new BaseException(ErrorCode.EXTERNAL_API_ERROR, "좌표 변환 중 오류가 발생했습니다.");
+            throw new BaseException(ErrorCode.EXTERNAL_API_ERROR, e.getMessage());
         }
     }
 }
