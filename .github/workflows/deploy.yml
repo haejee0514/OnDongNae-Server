@@ -1,4 +1,4 @@
-name: GoruGoru-Server CI/CD
+name: GoruGoru-Server CI/CD (JAR)
 
 on:
   push:
@@ -7,7 +7,6 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v3
@@ -24,46 +23,51 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew clean build -x test
 
-      - name: Docker Hub Login
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Rename JAR
+        run: mv ./build/libs/*SNAPSHOT.jar ./gorugoru.jar
 
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v4
-        with:
-          context: .
-          push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/ondongnae-server:latest
-
-      - name: Deploy to EC2
-        env:
-          DOCKER_RUN_COMMAND: "docker run -d -p 8080:8080 \
-            --name ${{ github.event.repository.name }} \
-            -e spring.datasource.url=${{ secrets.DATABASE_URL }} \
-            -e spring.datasource.username=${{ secrets.DATABASE_USERNAME }} \
-            -e spring.datasource.password=${{ secrets.DATABASE_PASSWORD }} \
-            -e jwt.secret=${{ secrets.JWT_SECRET }} \
-            -e cloud.aws.s3.bucket=${{ secrets.AWS_BUCKET }} \
-            -e cloud.aws.region.static=${{ secrets.AWS_REGION }} \
-            -e openai.api.key=${{ secrets.OPENAI_API_KEY }} \
-            -e clova.ocr.invoke-url=${{ secrets.CLOVA_OCR_INVOKE_URL }} \
-            -e clova.ocr.secret-key=${{ secrets.CLOVA_OCR_SECRET }} \
-            -e DESC_API_URL=${{ secrets.DESC_API_URL }} \
-            -e TRANSLATE_API_URL=${{ secrets.TRANSLATE_API_URL }} \
-            -e GOOGLE_MAP_API_KEY=${{ secrets.GOOGLE_MAP_API_KEY }} \
-            -e ADD_STORE_API_URL=${{ secrets.ADD_STORE_API_URL }} \
-            -e COURSE_RECOMMENDATION_API_URL=${{ secrets.COURSE_RECOMMENDATION_API_URL }} \
-            -e CURRENCY_API_KEY=${{ secrets.CURRENCY_API_KEY }} \
-            ${{ secrets.DOCKER_USERNAME }}/ondongnae-server:latest"
-        uses: appleboy/ssh-action@master
+      - name: Copy JAR to EC2
+        uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USERNAME }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          source: gorugoru.jar
+          target: /home/ubuntu/gorugoru/tobe
+
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script_stop: true
           script: |
-            docker stop $(docker ps -a -q --filter name=${{ github.event.repository.name }}) || true
-            docker rm $(docker ps -a -q --filter name=${{ github.event.repository.name }}) || true
-            docker pull ${{ secrets.DOCKER_USERNAME }}/ondongnae-server:latest
-            ${{ env.DOCKER_RUN_COMMAND }}
+            # 새 JAR 배치
+            rm -rf /home/ubuntu/gorugoru/current
+            mkdir -p /home/ubuntu/gorugoru/current
+            mv /home/ubuntu/gorugoru/tobe/gorugoru.jar /home/ubuntu/gorugoru/current/gorugoru.jar
+            cd /home/ubuntu/gorugoru/current
+
+            # 기존 프로세스 종료
+            sudo fuser -k -n tcp 8080 || true
+
+            # Spring Boot 실행 (환경변수 전달)
+            nohup java -jar gorugoru.jar \
+              --server.port=8080 \
+              --spring.datasource.url=${{ secrets.DATABASE_URL }} \
+              --spring.datasource.username=${{ secrets.DATABASE_USERNAME }} \
+              --spring.datasource.password=${{ secrets.DATABASE_PASSWORD }} \
+              --jwt.secret=${{ secrets.JWT_SECRET }} \
+              --cloud.aws.s3.bucket=${{ secrets.AWS_BUCKET }} \
+              --cloud.aws.region.static=${{ secrets.AWS_REGION }} \
+              --openai.api.key=${{ secrets.OPENAI_API_KEY }} \
+              --clova.ocr.invoke-url=${{ secrets.CLOVA_OCR_INVOKE_URL }} \
+              --clova.ocr.secret-key=${{ secrets.CLOVA_OCR_SECRET }} \
+              --DESC_API_URL=${{ secrets.DESC_API_URL }} \
+              --TRANSLATE_API_URL=${{ secrets.TRANSLATE_API_URL }} \
+              --GOOGLE_MAP_API_KEY=${{ secrets.GOOGLE_MAP_API_KEY }} \
+              --ADD_STORE_API_URL=${{ secrets.ADD_STORE_API_URL }} \
+              --COURSE_RECOMMENDATION_API_URL=${{ secrets.COURSE_RECOMMENDATION_API_URL }} \
+              --CURRENCY_API_KEY=${{ secrets.CURRENCY_API_KEY }} \
+              > ./output.log 2>&1 &
