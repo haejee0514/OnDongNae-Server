@@ -1,0 +1,82 @@
+name: GoruGoru-Server CI/CD
+
+on:
+  push:
+    branches: [ "develop" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 소스 코드 가져오기
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # 2. JDK 21 설정
+      - name: Set up JDK 21
+        uses: actions/setup-java@v3
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      # 3. Gradle 실행 권한 부여
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      # 4. Gradle로 빌드
+      - name: Build with Gradle
+        run: ./gradlew clean build
+
+      # 5. Docker Hub 로그인
+      - name: Docker Hub Login
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # 6. Docker 이미지 빌드 및 푸시
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/${{ github.event.repository.name }}:latest
+
+      # 7. EC2에 배포
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # 기존 컨테이너 중지 및 삭제
+            docker stop $(docker ps -a -q --filter name=${{ github.event.repository.name }}) || true
+            docker rm $(docker ps -a -q --filter name=${{ github.event.repository.name }}) || true
+            
+            # Docker Hub에서 최신 이미지 받기
+            docker pull ${{ secrets.DOCKER_USERNAME }}/${{ github.event.repository.name }}:latest
+            
+            # 환경 변수와 함께 새 컨테이너 실행
+            docker run -d \
+              -p 8080:8080 \
+              --name ${{ github.event.repository.name }} \
+              -e DATABASE_URL=${{ secrets.DATABASE_URL }} \
+              -e DATABASE_USERNAME=${{ secrets.DATABASE_USERNAME }} \
+              -e DATABASE_PASSWORD=${{ secrets.DATABASE_PASSWORD }} \
+              -e JWT_SECRET=${{ secrets.JWT_SECRET }} \
+              -e cloud.aws.credentials.access-key=${{ secrets.AWS_ACCESS_KEY }} \
+              -e cloud.aws.credentials.secret-key=${{ secrets.AWS_SECRET_KEY }} \
+              -e cloud.aws.s3.bucket=${{ secrets.AWS_BUCKET }} \
+              -e cloud.aws.region.static=${{ secrets.AWS_REGION }} \
+              -e openai.api.key=${{ secrets.OPENAI_API_KEY }} \
+              -e clova.ocr.invoke-url=${{ secrets.CLOVA_OCR_INVOKE_URL }} \
+              -e clova.ocr.secret-key=${{ secrets.CLOVA_OCR_SECRET }} \
+              -e DESC_API_URL=${{ secrets.DESC_API_URL }} \
+              -e TRANSLATE_API_URL=${{ secrets.TRANSLATE_API_URL }} \
+              -e GOOGLE_MAP_API_KEY=${{ secrets.GOOGLE_MAP_API_KEY }} \
+              -e ADD_STORE_API_URL=${{ secrets.ADD_STORE_API_URL }} \
+              -e COURSE_RECOMMENDATION_API_URL=${{ secrets.COURSE_RECOMMENDATION_API_URL }} \
+              -e CURRENCY_API_KEY=${{ secrets.CURRENCY_API_KEY }} \
+              ${{ secrets.DOCKER_USERNAME }}/${{ github.event.repository.name }}:latest
