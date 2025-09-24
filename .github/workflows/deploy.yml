@@ -51,5 +51,22 @@ jobs:
             # 기존 프로세스 종료
             sudo fuser -k -n tcp 8080 || true
 
-            # Spring Boot 실행 (한 줄)
-            nohup java -jar gorugoru.jar --server.port=8080 --spring.datasource.url=${{ secrets.DATABASE_URL }} --spring.datasource.username=${{ secrets.DATABASE_USERNAME }} --spring.datasource.password=${{ secrets.DATABASE_PASSWORD }} --jwt.secret=${{ secrets.JWT_SECRET }} --cloud.aws.s3.bucket=${{ secrets.AWS_BUCKET }} --cloud.aws.region.static=${{ secrets.AWS_REGION }} --openai.api.key=${{ secrets.OPENAI_API_KEY }} --clova.ocr.invoke-url=${{ secrets.CLOVA_OCR_INVOKE_URL }} --clova.ocr.secret-key=${{ secrets.CLOVA_OCR_SECRET }} --DESC_API_URL=${{ secrets.DESC_API_URL }} --TRANSLATE_API_URL=${{ secrets.TRANSLATE_API_URL }} --GOOGLE_MAP_API_KEY=${{ secrets.GOOGLE_MAP_API_KEY }} --ADD_STORE_API_URL=${{ secrets.ADD_STORE_API_URL }} --COURSE_RECOMMENDATION_API_URL=${{ secrets.COURSE_RECOMMENDATION_API_URL }} --CURRENCY_API_KEY=${{ secrets.CURRENCY_API_KEY }} > ./output.log 2>&1 &
+            # Spring Boot 실행 (Secrets 값 전부 따옴표 처리)
+            nohup java -jar gorugoru.jar \
+              --server.port=8080 \
+              --spring.datasource.url="${{ secrets.DATABASE_URL }}" \
+              --spring.datasource.username="${{ secrets.DATABASE_USERNAME }}" \
+              --spring.datasource.password="${{ secrets.DATABASE_PASSWORD }}" \
+              --jwt.secret="${{ secrets.JWT_SECRET }}" \
+              --cloud.aws.s3.bucket="${{ secrets.AWS_BUCKET }}" \
+              --cloud.aws.region.static="${{ secrets.AWS_REGION }}" \
+              --openai.api.key="${{ secrets.OPENAI_API_KEY }}" \
+              --clova.ocr.invoke-url="${{ secrets.CLOVA_OCR_INVOKE_URL }}" \
+              --clova.ocr.secret-key="${{ secrets.CLOVA_OCR_SECRET }}" \
+              --DESC_API_URL="${{ secrets.DESC_API_URL }}" \
+              --TRANSLATE_API_URL="${{ secrets.TRANSLATE_API_URL }}" \
+              --GOOGLE_MAP_API_KEY="${{ secrets.GOOGLE_MAP_API_KEY }}" \
+              --ADD_STORE_API_URL="${{ secrets.ADD_STORE_API_URL }}" \
+              --COURSE_RECOMMENDATION_API_URL="${{ secrets.COURSE_RECOMMENDATION_API_URL }}" \
+              --CURRENCY_API_KEY="${{ secrets.CURRENCY_API_KEY }}" \
+              > ./output.log 2>&1 &
