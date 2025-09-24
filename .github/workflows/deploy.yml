@@ -62,12 +62,10 @@ jobs:
             docker run -d \
               -p 8080:8080 \
               --name ${{ github.event.repository.name }} \
-              -e DATABASE_URL=${{ secrets.DATABASE_URL }} \
-              -e DATABASE_USERNAME=${{ secrets.DATABASE_USERNAME }} \
-              -e DATABASE_PASSWORD=${{ secrets.DATABASE_PASSWORD }} \
-              -e JWT_SECRET=${{ secrets.JWT_SECRET }} \
-              -e cloud.aws.credentials.access-key=${{ secrets.AWS_ACCESS_KEY }} \
-              -e cloud.aws.credentials.secret-key=${{ secrets.AWS_SECRET_KEY }} \
+              -e spring.datasource.url=${{ secrets.DATABASE_URL }} \
+              -e spring.datasource.username=${{ secrets.DATABASE_USERNAME }} \
+              -e spring.datasource.password=${{ secrets.DATABASE_PASSWORD }} \
+              -e jwt.secret=${{ secrets.JWT_SECRET }} \
               -e cloud.aws.s3.bucket=${{ secrets.AWS_BUCKET }} \
               -e cloud.aws.region.static=${{ secrets.AWS_REGION }} \
               -e openai.api.key=${{ secrets.OPENAI_API_KEY }} \
