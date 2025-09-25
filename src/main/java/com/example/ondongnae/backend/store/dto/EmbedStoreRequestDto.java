@@ -7,7 +7,7 @@ import java.util.List;
 
 @Data
 @Builder
-public class AddStoreRequestDto {
+public class EmbedStoreRequestDto {
     private int id;
     private String name;
     private String description;
