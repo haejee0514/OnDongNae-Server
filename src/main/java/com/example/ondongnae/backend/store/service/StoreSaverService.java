@@ -1,6 +1,5 @@
 package com.example.ondongnae.backend.store.service;
 
-import com.example.ondongnae.backend.category.model.MainCategory;
 import com.example.ondongnae.backend.category.model.StoreSubCategory;
 import com.example.ondongnae.backend.category.model.SubCategory;
 import com.example.ondongnae.backend.category.repository.StoreSubCategoryRepository;
@@ -9,11 +8,8 @@ import com.example.ondongnae.backend.global.dto.LatLngResponseDto;
 import com.example.ondongnae.backend.global.dto.TranslateResponseDto;
 import com.example.ondongnae.backend.global.exception.BaseException;
 import com.example.ondongnae.backend.global.exception.ErrorCode;
-import com.example.ondongnae.backend.global.service.TranslateService;
-import com.example.ondongnae.backend.market.model.Market;
-import com.example.ondongnae.backend.member.dto.RegisterStoreDto;
-import com.example.ondongnae.backend.member.model.Member;
 import com.example.ondongnae.backend.store.dto.DescriptionResponseDto;
+import com.example.ondongnae.backend.store.dto.StoreSaveContextDto;
 import com.example.ondongnae.backend.store.model.Store;
 import com.example.ondongnae.backend.store.model.StoreImage;
 import com.example.ondongnae.backend.store.model.StoreIntro;
@@ -33,32 +29,37 @@ public class StoreSaverService {
     private final StoreRepository storeRepository;
     private final StoreImageRepository storeImageRepository;
     private final StoreSubCategoryRepository storeSubCategoryRepository;
-    private final TranslateService translateService;
     private final StoreIntroRepository storeIntroRepository;
     private final SubCategoryRepository subCategoryRepository;
 
 
     @Transactional
-    public Store saveStore(RegisterStoreDto registerStoreDto, Member member, Market market, MainCategory mainCategory, TranslateResponseDto translateName, TranslateResponseDto translateAddress, LatLngResponseDto latLngByAddress, DescriptionResponseDto descriptionResponseDto, List<String> imageUrls) {
+    public Store saveStore(StoreSaveContextDto saveContextDto) {
+        TranslateResponseDto translateName = saveContextDto.getTranslateName();
+        TranslateResponseDto translateAddress = saveContextDto.getTranslateAddress();
+        TranslateResponseDto translateShort = saveContextDto.getTranslateShort();
+        TranslateResponseDto translateLong = saveContextDto.getTranslateLong();
+        LatLngResponseDto latLngByAddress = saveContextDto.getLatLngByAddress();
+
         // 가게 저장
-        Store store = Store.builder().member(member).market(market).mainCategory(mainCategory)
-                .nameEn(translateName.getEnglish()).nameKo(registerStoreDto.getStoreName())
+        Store store = Store.builder().member(saveContextDto.getMember()).market(saveContextDto.getMarket()).mainCategory(saveContextDto.getMainCategory())
+                .nameEn(translateName.getEnglish()).nameKo(saveContextDto.getStoreNameKo())
                 .nameJa(translateName.getJapanese()).nameZh(translateName.getChinese())
-                .addressKo(registerStoreDto.getAddress()).addressJa(translateAddress.getJapanese())
+                .addressKo(saveContextDto.getStoreAddressKo()).addressJa(translateAddress.getJapanese())
                 .addressEn(translateAddress.getEnglish()).addressZh(translateAddress.getChinese())
-                .phone(registerStoreDto.getPhoneNum()).lat(latLngByAddress.getLat()).lng(latLngByAddress.getLng()).build();
+                .phone(saveContextDto.getPhoneNum()).lat(latLngByAddress.getLat()).lng(latLngByAddress.getLng()).build();
 
         Store savedStore = storeRepository.save(store);
 
         // 가게 소분류 저장
-        saveStoreCategories(registerStoreDto.getSubCategory(), savedStore);
+        saveStoreCategories(saveContextDto.getSubCategory(), savedStore);
 
         // 설명 번역 및 저장
-        saveStoreIntro(descriptionResponseDto, savedStore);
+        saveStoreIntro(saveContextDto.getDescriptionResponseDto(), translateShort, translateLong, savedStore);
 
         // 가게 이미지 저장
         int order = 1;
-        for (String url : imageUrls) {
+        for (String url : saveContextDto.getImageUrls()) {
             StoreImage storeImage = StoreImage.builder().store(savedStore)
                     .url(url).order(order++).build();
             storeImageRepository.save(storeImage);
@@ -67,13 +68,7 @@ public class StoreSaverService {
         return savedStore;
     }
 
-    private void saveStoreIntro(DescriptionResponseDto descriptionResponseDto, Store store) {
-        String shortDescription = descriptionResponseDto.getShort_description();
-        String longDescription = descriptionResponseDto.getLong_description();
-
-        TranslateResponseDto translateShort = translateService.translate(shortDescription);
-        TranslateResponseDto translateLong = translateService.translate(longDescription);
-
+    private void saveStoreIntro(DescriptionResponseDto descriptionResponseDto, TranslateResponseDto translateShort, TranslateResponseDto translateLong, Store store) {
         StoreIntro en = StoreIntro.builder().store(store).lang("en").longIntro(translateLong.getEnglish()).shortIntro(translateShort.getEnglish()).build();
         StoreIntro ko = StoreIntro.builder().store(store).lang("ko").longIntro(descriptionResponseDto.getLong_description()).shortIntro(descriptionResponseDto.getShort_description()).build();
         StoreIntro zh = StoreIntro.builder().store(store).lang("zh").longIntro(translateLong.getChinese()).shortIntro(translateShort.getChinese()).build();

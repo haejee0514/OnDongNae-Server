@@ -3,7 +3,6 @@ package com.example.ondongnae.backend.store.service;
 import com.example.ondongnae.backend.category.model.MainCategory;
 import com.example.ondongnae.backend.category.model.SubCategory;
 import com.example.ondongnae.backend.category.repository.MainCategoryRepository;
-import com.example.ondongnae.backend.category.repository.StoreSubCategoryRepository;
 import com.example.ondongnae.backend.category.repository.SubCategoryRepository;
 import com.example.ondongnae.backend.global.dto.LatLngResponseDto;
 import com.example.ondongnae.backend.global.dto.TranslateResponseDto;
@@ -20,10 +19,7 @@ import com.example.ondongnae.backend.member.dto.RegisterStoreDto;
 import com.example.ondongnae.backend.member.model.Member;
 import com.example.ondongnae.backend.member.repository.MemberRepository;
 import com.example.ondongnae.backend.member.service.AuthService;
-import com.example.ondongnae.backend.store.dto.AddStoreRequestDto;
-import com.example.ondongnae.backend.store.dto.AddStoreResponseDto;
-import com.example.ondongnae.backend.store.dto.DescriptionCreateRequestDto;
-import com.example.ondongnae.backend.store.dto.DescriptionResponseDto;
+import com.example.ondongnae.backend.store.dto.*;
 import com.example.ondongnae.backend.store.model.Store;
 import com.example.ondongnae.backend.store.repository.StoreRepository;
 import lombok.RequiredArgsConstructor;
@@ -62,7 +58,6 @@ public class StoreService {
     private final PasswordEncoder passwordEncoder;
     private final StoreSaverService storeSaverService;
 
-    // 외부 API 호출과 트랜잭션 분리
     public Long registerStore(RegisterStoreDto registerStoreDto) {
 
         // 설명 생성
@@ -80,6 +75,10 @@ public class StoreService {
         // 가게 이름 번역
         TranslateResponseDto translateName = translateService.translate(storeName);
         TranslateResponseDto translateAddress = translateService.translate(registerStoreDto.getAddress());
+
+        // 가게 설명 번역
+        TranslateResponseDto translateShort = translateService.translate(descriptionResponseDto.getShort_description());
+        TranslateResponseDto translateLong = translateService.translate(descriptionResponseDto.getLong_description());
 
         // 위도 경도 변환
         LatLngResponseDto latLngByAddress = latLngService.getLatLngByAddress(registerStoreDto.getAddress());
@@ -101,7 +100,13 @@ public class StoreService {
             imageUrls.add("https://" + fileService.bucket + ".s3." + fileService.region +".amazonaws.com/defaultImage.png");
         }
 
-        Store savedStore = storeSaverService.saveStore(registerStoreDto, member, market, mainCategory, translateName, translateAddress, latLngByAddress, descriptionResponseDto, imageUrls);
+        // 외부 API 호출과 트랜잭션 분리
+        StoreSaveContextDto storeSaveContextDto = StoreSaveContextDto.builder().member(member).market(market).mainCategory(mainCategory).subCategory(registerStoreDto.getSubCategory())
+                .translateName(translateName).translateAddress(translateAddress).translateShort(translateShort).translateLong(translateLong)
+                .imageUrls(imageUrls).descriptionResponseDto(descriptionResponseDto).latLngByAddress(latLngByAddress)
+                .phoneNum(registerStoreDto.getPhoneNum()).storeAddressKo(registerStoreDto.getAddress()).storeNameKo(registerStoreDto.getStoreName()).build();
+
+        Store savedStore = storeSaverService.saveStore(storeSaveContextDto);
 
         // 벡터 DB에 가게 정보 임베딩
         //embedStore(descriptionCreateRequestDto, descriptionResponseDto, market.getNameKo(), savedStore.getId());
@@ -111,7 +116,7 @@ public class StoreService {
 
     private void embedStore(DescriptionCreateRequestDto data, DescriptionResponseDto description, String marketName, Long storeId) {
 
-        AddStoreRequestDto addStoreRequestDto = AddStoreRequestDto.builder().name(data.getName()).description(description.getLong_description())
+        EmbedStoreRequestDto embedStoreRequestDto = EmbedStoreRequestDto.builder().name(data.getName()).description(description.getLong_description())
                 .main_category(data.getMainCategory()).sub_category(data.getSubCategory()).id(storeId.intValue())
                 .address(data.getAddress()).market(marketName).build();
 
@@ -119,14 +124,14 @@ public class StoreService {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        HttpEntity<AddStoreRequestDto> requestEntity = new HttpEntity<>(addStoreRequestDto, headers);
+        HttpEntity<EmbedStoreRequestDto> requestEntity = new HttpEntity<>(embedStoreRequestDto, headers);
 
-        AddStoreResponseDto addStoreResponseDto;
+        EmbedStoreResponseDto embedStoreResponseDto;
 
         try {
-            addStoreResponseDto = restTemplate.exchange(ADD_STORE_API_URL, HttpMethod.POST, requestEntity, AddStoreResponseDto.class).getBody();
+            embedStoreResponseDto = restTemplate.exchange(ADD_STORE_API_URL, HttpMethod.POST, requestEntity, EmbedStoreResponseDto.class).getBody();
 
-            if (addStoreResponseDto == null)
+            if (embedStoreResponseDto == null)
                 throw new BaseException(ErrorCode.EXTERNAL_API_ERROR, "외부 API로부터 응답을 받아오지 못했습니다.");
 
         } catch (ResourceAccessException e) {
@@ -135,7 +140,7 @@ public class StoreService {
             throw new BaseException(ErrorCode.EXTERNAL_API_ERROR, "외부 API 호출 중 알 수 없는 오류가 발생했습니다.");
         }
 
-        System.out.println((addStoreResponseDto.getCount()));
+        System.out.println((embedStoreResponseDto.getCount()));
     }
 
     private DescriptionCreateRequestDto createDescriptionCreateRequestDto(RegisterStoreDto registerStoreDto) {
