@@ -54,7 +54,7 @@ public class SecurityConfig {
     @Bean
     public static CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(List.of("http://localhost:5173", "http://localhost:5174", "https://gorugoru.vercel.app"));
+        config.setAllowedOrigins(List.of("http://localhost:5173", "https://localhost:5173", "http://localhost:5174", "https://gorugoru.vercel.app", "https://goru-goru.store"));
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowCredentials(true);
         config.setAllowedHeaders(List.of("*"));
