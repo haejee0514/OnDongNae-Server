@@ -42,8 +42,8 @@ jobs:
           source: gorugoru.jar
           target: /home/ubuntu/gorugoru/tobe
 
-      # 7. EC2에서 jar 실행
-      - name: Deploy on EC2
+      # 7. EC2에서 systemd 재시작
+      - name: Deploy on EC2 with systemd
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -51,31 +51,15 @@ jobs:
           key: ${{ secrets.EC2_SSH_KEY }}
           script_stop: true
           script: |
-            # 경로 정리
+            # 기존 서비스 중지
+            sudo systemctl stop gorugoru || true
+
+            # JAR 교체
             rm -rf /home/ubuntu/gorugoru/current
             mkdir -p /home/ubuntu/gorugoru/current
             mv /home/ubuntu/gorugoru/tobe/gorugoru.jar /home/ubuntu/gorugoru/current/gorugoru.jar
-            cd /home/ubuntu/gorugoru/current
 
-            # 기존 프로세스 종료
-            sudo fuser -k -n tcp 8080 || true
-
-            # 새 프로세스 실행 (GitHub Secrets 사용)
-            nohup java -jar gorugoru.jar \
-              --server.port=8080 \
-              --spring.datasource.url="${{ secrets.DATABASE_URL }}" \
-              --spring.datasource.username="${{ secrets.DATABASE_USERNAME }}" \
-              --spring.datasource.password="${{ secrets.DATABASE_PASSWORD }}" \
-              --jwt.secret="${{ secrets.JWT_SECRET }}" \
-              --cloud.aws.s3.bucket="${{ secrets.AWS_BUCKET }}" \
-              --cloud.aws.region.static="${{ secrets.AWS_REGION }}" \
-              --openai.api.key="${{ secrets.OPENAI_API_KEY }}" \
-              --clova.ocr.invoke-url="${{ secrets.CLOVA_OCR_INVOKE_URL }}" \
-              --clova.ocr.secret-key="${{ secrets.CLOVA_OCR_SECRET }}" \
-              --DESC_API_URL="${{ secrets.DESC_API_URL }}" \
-              --TRANSLATE_API_URL="${{ secrets.TRANSLATE_API_URL }}" \
-              --GOOGLE_MAP_API_KEY="${{ secrets.GOOGLE_MAP_API_KEY }}" \
-              --ADD_STORE_API_URL="${{ secrets.ADD_STORE_API_URL }}" \
-              --COURSE_RECOMMENDATION_API_URL="${{ secrets.COURSE_RECOMMENDATION_API_URL }}" \
-              --CURRENCY_API_KEY="${{ secrets.CURRENCY_API_KEY }}" \
-              > ./output.log 2>&1 &
+            # systemd 다시 로드 및 서비스 시작
+            sudo systemctl daemon-reload
+            sudo systemctl restart gorugoru
+            sudo systemctl status gorugoru --no-pager -l
