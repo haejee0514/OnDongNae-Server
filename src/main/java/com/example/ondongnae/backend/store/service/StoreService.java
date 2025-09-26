@@ -109,7 +109,7 @@ public class StoreService {
         Store savedStore = storeSaverService.saveStore(storeSaveContextDto);
 
         // 벡터 DB에 가게 정보 임베딩
-        //embedStore(descriptionCreateRequestDto, descriptionResponseDto, market.getNameKo(), savedStore.getId());
+        embedStore(descriptionCreateRequestDto, descriptionResponseDto, market.getNameKo(), savedStore.getId());
 
         return savedStore.getId();
     }
