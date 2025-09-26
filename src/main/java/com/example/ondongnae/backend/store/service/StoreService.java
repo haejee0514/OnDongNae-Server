@@ -24,6 +24,7 @@ import com.example.ondongnae.backend.store.model.Store;
 import com.example.ondongnae.backend.store.repository.StoreRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -216,6 +217,7 @@ public class StoreService {
 
     // 내 정보 수정 (가게명/주소 다국어 저장, 주소 -> 위/경도 갱신, (옵션) 비밀번호 변경)
     @Transactional
+    @CacheEvict(cacheNames = "store-detail", allEntries = true)
     public void updateMyProfile(MyProfileUpdateRequest req) {
         Long storeId = authService.getMyStoreId();
         Store store = storeRepository.findById(storeId)
