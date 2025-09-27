@@ -53,5 +53,4 @@ public enum CanonicalAllergy {
         }
         return null;
     }
-
 }
