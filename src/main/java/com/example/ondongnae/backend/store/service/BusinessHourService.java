@@ -11,6 +11,7 @@ import com.example.ondongnae.backend.store.model.Store;
 import com.example.ondongnae.backend.store.repository.BusinessHourRepository;
 import com.example.ondongnae.backend.store.repository.StoreRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,6 +27,7 @@ public class BusinessHourService {
     private final BusinessHourRepository businessHourRepository;
 
     // 영업시간 저장 (기존 영업시간 전부 삭제 후 요청 바디대로 교체 저장)
+    @CacheEvict(cacheNames = "store-detail", allEntries = true)
     @Transactional
     public int saveBusinessHour(BusinessHourRequest request) {
         // 1. 가게 정보 가져오기

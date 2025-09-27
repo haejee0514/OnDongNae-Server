@@ -10,6 +10,7 @@ import com.example.ondongnae.backend.store.dto.StoreDescriptionDto;
 import com.example.ondongnae.backend.store.model.StoreIntro;
 import com.example.ondongnae.backend.store.repository.StoreIntroRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +43,7 @@ public class StoreDescriptionService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = "store-detail", allEntries = true)
     public void updateStoreDescription(String ver, String description) {
         Long myStoreId = authService.getMyStoreId();
 

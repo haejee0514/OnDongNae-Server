@@ -20,6 +20,7 @@ import com.example.ondongnae.backend.menu.repository.MenuAllergyRepository;
 import com.example.ondongnae.backend.menu.repository.MenuRepository;
 import com.example.ondongnae.backend.store.repository.StoreRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -138,6 +139,7 @@ public class AllergyService {
 
     // 알레르기 추출 결과 저장
     @Transactional
+    @CacheEvict(cacheNames = "store-detail", allEntries = true)
     public AllergyApplyResponse applyToMyMenus(AllergyApplyRequest req) {
         Map<Long, List<String>> map = (req == null || req.getMenuAllergies() == null)
                 ? Map.of() : req.getMenuAllergies();

@@ -12,6 +12,7 @@ import com.example.ondongnae.backend.menu.repository.MenuRepository;
 import com.example.ondongnae.backend.store.model.Store;
 import com.example.ondongnae.backend.store.repository.StoreRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,6 +30,7 @@ public class MenuService {
 
     // 메뉴 저장 (수기/OCR 공통)
     @Transactional
+    @CacheEvict(cacheNames = "store-detail", allEntries = true)
     public ManualMenuCreateResponse createManual(ManualMenuCreateRequest request) {
         Long storeId = authService.getMyStoreId();
         Store store = storeRepository.findById(storeId)
@@ -113,6 +115,7 @@ public class MenuService {
 
     // 메뉴 수정
     @Transactional
+    @CacheEvict(cacheNames = "store-detail", allEntries = true)
     public MenuUpdateResponse replaceAll(MenuUpdateRequest request) {
         Long storeId = authService.getMyStoreId();
 
